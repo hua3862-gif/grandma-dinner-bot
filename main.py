@@ -200,8 +200,8 @@ def clear_records():
 
 # 啟動定時任務
 scheduler = BackgroundScheduler(timezone="Asia/Taipei")
-scheduler.add_job(send_daily_survey, CronTrigger(hour=15, minute=30))
-scheduler.add_job(report_to_chef, CronTrigger(hour=17, minute=0))
+scheduler.add_job(send_daily_survey, CronTrigger(hour=16, minute=00))
+scheduler.add_job(report_to_chef, CronTrigger(hour=16, minute=05))
 scheduler.add_job(clear_records, CronTrigger(hour=19, minute=30))
 scheduler.start()
 
