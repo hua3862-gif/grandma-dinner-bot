@@ -29,57 +29,55 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 app = FastAPI()
 
-# 2. LINE 憑證設定 (請填入您的憑證密碼)
+# 2. LINE 憑證設定
 CHANNEL_SECRET = "e62b1fccd5bc395a1ed19bd7c7015b92"
 CHANNEL_ACCESS_TOKEN = "v8ticoY2QbrUdRcQur6CyKorrAwgOVZDWiJuGMILlB8DlYrV8iIvwTJschTzalb9iOofv2cVaQn+PEcVPmpSjxz0t3YX151hhvU5M04SWh316K7PuiZATSsoXDEhwpDklyw0tJV9pUSI4J6rd6ylnwdB04t89/1O/w1cDnyilFU="
 
-# 3. 目標 ID 設定
-SURVEY_TARGET_ID = "請填入家庭大群組的ID"
-REPORT_TARGET_ID = "請填入回報群組或大廚的個人ID"
+# 3. 目標 ID 設定 (請記得換成您新群組的 ID)
+SURVEY_TARGET_ID = "Cacfb77eec8efc921e271c78c8a6b843c"
+REPORT_TARGET_ID = "C80c5607b6b214a6e7e5b31d67440a796"
 
 configuration = Configuration(access_token=CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(CHANNEL_SECRET)
 
-# 4. 資料儲存庫
-# 結構: { "user_id": { "name": "王小明", "dinner": "準時/晚一點/不留飯", "bento": "要/不要", "last_seen": datetime } }
+# 4. 資料儲存庫 (維持空空的，機器人運作時會自動寫入)
 dinner_records = {}
-# 用於動態記錄群組內所有已知成員的名單（用來比對誰未回覆）
 known_members = {}
 
 # ==========================================
-# 【新增功能】判斷今天是否為台灣上班日
+# 【判斷是否要發問卷】包含台灣上班日與放假前夕判定
 # ==========================================
-def is_taiwan_workday():
+def should_send_survey_today():
     today = datetime.now()
-    weekday = today.weekday() # 0=週一, ..., 5=週六, 6=週日
+    weekday = today.weekday() # 0=週一, ..., 4=週五, 5=週六, 6=週日
     
-    # 1. 基本週末判定 (週六=5, 週日=6)
-    is_weekend = weekday in [5, 6]
-    
-    # 2. 這裡預留手動調整空間 (例如國定假日放假、或是週六需要補班)
-    # 格式為 "YYYY-MM-DD"
+    # 🌟 新增需求：如果是週五(4)或週六(5)，代表隔天放假，不用進行調查
+    if weekday in [4, 5]:
+        logger.info("今天為放假前夕（週五/週六），跳過調查。")
+        return False
+
+    # 這裡原本的春節/國定假日判定依然保留
     taiwan_holidays = [
-        "2026-01-01", "2026-02-16", "2026-02-17", "2026-02-18", "2026-02-19", "2026-02-20", # 範例：春節
+        "2026-01-01", "2026-02-16", "2026-02-17", "2026-02-18", "2026-02-19", "2026-02-20", 
         "2026-02-23", "2026-02-27", "2026-04-03", "2026-04-06", "2026-06-19", "2026-09-25",
     ]
     taiwan_makeup_workdays = [
-        "2026-02-07", # 範例：週六補班日
+        "2026-02-07",
     ]
     
     date_str = today.strftime("%Y-%m-%d")
     
     if date_str in taiwan_makeup_workdays:
-        return True  # 雖然是週末，但要補班，所以算上班日
+        return True  
     if date_str in taiwan_holidays:
-        return False # 雖然是週間，但放假，不算上班日
+        return False 
         
-    return not is_weekend
+    return weekday not in [5, 6]
 
 # ==========================================
-# 【優化功能】生成精美的問卷卡片 (Flex Message)
+# 生成精美的問卷卡片 (Flex Message)
 # ==========================================
 def create_dinner_card():
-    """第一階段：問晚餐"""
     flex_json = {
       "type": "bubble", "size": "giga",
       "header": {
@@ -102,7 +100,6 @@ def create_dinner_card():
     return FlexContainer.from_dict(flex_json)
 
 def create_bento_card():
-    """第二階段：問便當"""
     flex_json = {
       "type": "bubble", "size": "giga",
       "header": {
@@ -124,15 +121,14 @@ def create_bento_card():
     return FlexContainer.from_dict(flex_json)
 
 # ==========================================
-# 【定時任務】排程管理 (僅在台灣上班日發送)
+# 【定時任務】排程管理
 # ==========================================
 def send_daily_survey():
-    """【自動功能 1】每天下午 15:30 發送晚餐問卷 (過濾假節日)"""
-    if not is_taiwan_workday():
-        logger.info("今天不是台灣上班日，跳過發送問卷。")
+    """每天下午 15:30 發送晚餐問卷 (自動過濾假日與放假前夕)"""
+    if not should_send_survey_today():
         return
         
-    logger.info("上班日發送晚餐問卷調查...")
+    logger.info("發送晚餐問卷調查...")
     if SURVEY_TARGET_ID.startswith("C") or SURVEY_TARGET_ID.startswith("R") or SURVEY_TARGET_ID.startswith("U"):
         with ApiClient(configuration) as api_client:
             line_bot_api = MessagingApi(api_client)
@@ -141,11 +137,12 @@ def send_daily_survey():
             line_bot_api.push_message(PushMessageRequest(to=SURVEY_TARGET_ID, messages=[flex_message]))
 
 def report_to_chef():
-    """【自動功能 2】每天下午 17:00 統計名單（包含未回覆），主動傳給大廚"""
-    if not is_taiwan_workday():
+    """每天下午 17:00 統計名單，列出人數與【詳細人員名字】回報給大廚"""
+    # 如果今天不該發問卷，那天下午也就不需要發回報報告
+    if not should_send_survey_today():
         return
         
-    logger.info("開始執行上班日大廚回報...")
+    logger.info("開始執行大廚回報...")
     if not REPORT_TARGET_ID.startswith("C") and not REPORT_TARGET_ID.startswith("R") and not REPORT_TARGET_ID.startswith("U"):
         return
         
@@ -169,43 +166,43 @@ def report_to_chef():
         if info.get("bento") == "要": bento_yes_list.append(name)
         elif info.get("bento") == "不要": bento_no_list.append(name)
 
-    # 找出未回覆的人 (比對已知在群組裡點過按鈕或發過言的成員名單)
+    # 找出未回覆的人
     unreplied_list = [name for uid, name in known_members.items() if uid not in replied_users]
 
-    # 彙整報告文字
-    report_text = f"📋 【今日晚餐與明日便當報告Laporan makan malam hari ini dan laporan bento untuk besok】 ({datetime.now().strftime('%m/%d')})\n\n"
-    report_text += f"🏠 晚餐統計Statistik makan malam：\n"
-    report_text += f" 👥 回家吃飯總人數Jumlah total orang yang makan di rumah：{len(on_time_list) + len(late_list)} 人\n"
-    report_text += f"   • 準時到家Pulang ke rumah tepat waktu：{', '.join(on_time_list) if on_time_list else '無'}\n"
-    report_text += f"   • 晚一點到Datang lebih lambat：{', '.join(late_list) if late_list else '無'}\n"
-    report_text += f" ❌ 不用留飯Tidak perlu menyimpan makanan：{', '.join(no_dinner_list) if no_dinner_list else '無'}\n\n"
+    # 彙整報告文字 (包含詳細姓名點名)
+    report_text = f"📋 【今日晚餐與明日便當報告】 ({datetime.now().strftime('%m/%d')})\n\n"
+    report_text += f"🏠 晚餐統計 Statistik makan malam：\n"
+    report_text += f" 👥 回家吃飯總人數：{len(on_time_list) + len(late_list)} 人\n"
+    report_text += f"   • 準時到家 Pulang tepat waktu ({len(on_time_list)}人)：{', '.join(on_time_list) if on_time_list else '無'}\n"
+    report_text += f"   • 晚一點到 Datang lambat ({len(late_list)}人)：{', '.join(late_list) if late_list else '無'}\n"
+    report_text += f" ❌ 不用留飯 Tidak perlu makanan ({len(no_dinner_list)}人)：{', '.join(no_dinner_list) if no_dinner_list else '無'}\n\n"
     
-    report_text += f"🍱 明日便當統計Statistik Bento Besok：\n"
-    report_text += f" ⭕ 需要便當Butuh kotak bento：{', '.join(bento_yes_list) if bento_yes_list else '無'}\n"
-    report_text += f" ❌ 不需要者Mereka yang tidak membutuhkan：{', '.join(bento_no_list) if bento_no_list else '無'}\n\n"
+    report_text += f"🍱 明日便當統計 Statistik Bento Besok：\n"
+    report_text += f" ⭕ 需要便當 Butuh bento ({len(bento_yes_list)}人)：{', '.join(bento_yes_list) if bento_yes_list else '無'}\n"
+    report_text += f" ❌ 不需要者 Tidak butuh ({len(bento_no_list)}人)：{', '.join(bento_no_list) if bento_no_list else '無'}\n\n"
     
-    report_text += f"⚠️ 尚未回覆人員Personel yang belum memberikan tanggapan：\n"
-    report_text += f" 🕒 {', '.join(unreplied_list) if unreplied_list else '全數皆已回覆Semua pertanyaan telah dijawab！'}"
+    report_text += f"⚠️ 尚未回覆人員 Belum menanggapi：\n"
+    report_text += f" 🕒 {', '.join(unreplied_list) if unreplied_list else '全數皆已回覆 Semua telah dijawab！'}"
 
     with ApiClient(configuration) as api_client:
         line_bot_api = MessagingApi(api_client)
         line_bot_api.push_message(PushMessageRequest(to=REPORT_TARGET_ID, messages=[TextMessage(text=report_text)]))
 
 def clear_records():
-    """【自動功能 3】每天晚上 19:30 自動清空當日登記，但保留已知成員清單"""
+    """每天晚上 19:30 自動清空當日登記"""
     global dinner_records
     dinner_records.clear()
     logger.info("今日晚餐及便當資料已重置。")
 
 # 啟動定時任務
 scheduler = BackgroundScheduler(timezone="Asia/Taipei")
-scheduler.add_job(send_daily_survey, CronTrigger(hour=16, minute=00))
-scheduler.add_job(report_to_chef, CronTrigger(hour=16, minute=5))
+scheduler.add_job(send_daily_survey, CronTrigger(hour=15, minute=30))
+scheduler.add_job(report_to_chef, CronTrigger(hour=17, minute=0))
 scheduler.add_job(clear_records, CronTrigger(hour=19, minute=30))
 scheduler.start()
 
 # ==========================================
-# 【接收節點】Webhook
+# Webhook 接收節點
 # ==========================================
 @app.post("/callback")
 async def callback(request: Request):
@@ -220,7 +217,7 @@ async def callback(request: Request):
     return PlainTextResponse("OK")
 
 # ==========================================
-# 【事件處理】接收並記錄按鈕點擊
+# 接收並記錄按鈕點擊
 # ==========================================
 @handler.add(PostbackEvent)
 def handle_postback(event: PostbackEvent):
@@ -228,7 +225,6 @@ def handle_postback(event: PostbackEvent):
     data = event.postback.data
     user_id = event.source.user_id
     
-    # 抓取真實暱稱並存入已知名單
     with ApiClient(configuration) as api_client:
         line_bot_api = MessagingApi(api_client)
         try:
@@ -241,13 +237,11 @@ def handle_postback(event: PostbackEvent):
     if user_id not in dinner_records:
         dinner_records[user_id] = {"name": user_name, "dinner": "未填", "bento": "未填"}
 
-    # 解析點擊的資料
     params = dict(param.split("=") for param in data.split("&"))
     
     with ApiClient(configuration) as api_client:
         line_bot_api = MessagingApi(api_client)
         
-        # 狀況 A：填寫完晚餐 ➔ 立刻挑出詢問便當的卡片
         if "dinner" in params:
             dinner_records[user_id]["dinner"] = params["dinner"]
             reply_text = f"👌 已幫您登記晚餐：【{params['dinner']}】。接下來請選擇明天的便當需求 👇"
@@ -263,7 +257,6 @@ def handle_postback(event: PostbackEvent):
                 )
             )
             
-        # 狀況 B：填寫完便當 ➔ 悄悄話收尾
         elif "bento" in params:
             dinner_records[user_id]["bento"] = params["bento"]
             current_dinner = dinner_records[user_id]["dinner"]
@@ -277,7 +270,7 @@ def handle_postback(event: PostbackEvent):
             )
 
 # ==========================================
-# 【貼心工具】自動收集名單與查 ID 
+# 自動收集名單與查 ID 
 # ==========================================
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event: MessageEvent):
@@ -285,7 +278,6 @@ def handle_message(event: MessageEvent):
     text = event.message.text.strip()
     user_id = event.source.user_id
     
-    # 只要有人發言，順便記錄他的名字以便納入「未回覆人員」的追蹤基礎名單中
     with ApiClient(configuration) as api_client:
         line_bot_api = MessagingApi(api_client)
         try:
@@ -294,7 +286,6 @@ def handle_message(event: MessageEvent):
         except Exception:
             pass
 
-    # 口令查 ID
     if text.upper() in ["ID", "帳號"]:
         source_type = event.source.type
         reply_id_text = f"👥 本群組 ID：\n{event.source.group_id}" if source_type == "group" else f"👤 您的個人 ID：\n{user_id}"
