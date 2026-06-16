@@ -1,4 +1,3 @@
-Plaintext
 fastapi
 uvicorn
 line-bot-sdk-python3
