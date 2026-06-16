@@ -1,4 +1,4 @@
 fastapi
 uvicorn
-line-bot-sdk-python3
+line-bot-sdk
 apscheduler
