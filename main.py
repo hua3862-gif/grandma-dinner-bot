@@ -33,7 +33,7 @@ app = FastAPI()
 CHANNEL_SECRET = "e62b1fccd5bc395a1ed19bd7c7015b92"
 CHANNEL_ACCESS_TOKEN = "v8ticoY2QbrUdRcQur6CyKorrAwgOVZDWiJuGMILlB8DlYrV8iIvwTJschTzalb9iOofv2cVaQn+PEcVPmpSjxz0t3YX151hhvU5M04SWh316K7PuiZATSsoXDEhwpDklyw0tJV9pUSI4J6rd6ylnwdB04t89/1O/w1cDnyilFU="
 
-# 3. 目標 ID 設定 (請記得換成您新群組的 ID)
+# 3. 目標 ID 設定 (已保留您抓取的真實群組 ID)
 SURVEY_TARGET_ID = "Cacfb77eec8efc921e271c78c8a6b843c"
 REPORT_TARGET_ID = "C80c5607b6b214a6e7e5b31d67440a796"
 
@@ -124,11 +124,11 @@ def create_bento_card():
 # 【定時任務】排程管理
 # ==========================================
 def send_daily_survey():
-    """每天下午 15:30 發送晚餐問卷 (自動過濾假日與放假前夕)"""
+    """調整功能：中午 12:00 發送晚餐問卷 (自動過濾假日與放假前夕)"""
     if not should_send_survey_today():
         return
         
-    logger.info("發送晚餐問卷調查...")
+    logger.info("中午 12:00 發送晚餐問卷調查...")
     if SURVEY_TARGET_ID.startswith("C") or SURVEY_TARGET_ID.startswith("R") or SURVEY_TARGET_ID.startswith("U"):
         with ApiClient(configuration) as api_client:
             line_bot_api = MessagingApi(api_client)
@@ -137,12 +137,11 @@ def send_daily_survey():
             line_bot_api.push_message(PushMessageRequest(to=SURVEY_TARGET_ID, messages=[flex_message]))
 
 def report_to_chef():
-    """每天下午 17:00 統計名單，列出人數與【詳細人員名字】回報給大廚"""
-    # 如果今天不該發問卷，那天下午也就不需要發回報報告
+    """調整功能：下午 16:00 統計名單，列出人數與【詳細人員名字】回報給大廚"""
     if not should_send_survey_today():
         return
         
-    logger.info("開始執行大廚回報...")
+    logger.info("下午 16:00 開始執行大廚回報...")
     if not REPORT_TARGET_ID.startswith("C") and not REPORT_TARGET_ID.startswith("R") and not REPORT_TARGET_ID.startswith("U"):
         return
         
@@ -182,23 +181,23 @@ def report_to_chef():
     report_text += f" ❌ 不需要者 Tidak butuh ({len(bento_no_list)}人)：{', '.join(bento_no_list) if bento_no_list else '無'}\n\n"
     
     report_text += f"⚠️ 尚未回覆人員 Belum menanggapi：\n"
-    report_text += f" 🕒 {', '.join(unreplied_list) if unreplied_list else '全數皆已回覆 Semua telah dijawab！'}"
+    report_text += f" 🕒 {', '.join(unreplied_list) if unreplied_list else '全數皆已回覆 所有問題皆已解答！'}"
 
     with ApiClient(configuration) as api_client:
         line_bot_api = MessagingApi(api_client)
         line_bot_api.push_message(PushMessageRequest(to=REPORT_TARGET_ID, messages=[TextMessage(text=report_text)]))
 
 def clear_records():
-    """每天晚上 19:30 自動清空當日登記"""
+    """每天晚上 19:00 自動清空當日登記"""
     global dinner_records
     dinner_records.clear()
     logger.info("今日晚餐及便當資料已重置。")
 
-# 啟動定時任務
+# 啟動定時任務 (🌟 這裡已修改為 12:00 / 16:00 / 19:00，且完全沒有前導零語法錯誤)
 scheduler = BackgroundScheduler(timezone="Asia/Taipei")
-scheduler.add_job(send_daily_survey, CronTrigger(hour=15, minute=30))
-scheduler.add_job(report_to_chef, CronTrigger(hour=17, minute=0))
-scheduler.add_job(clear_records, CronTrigger(hour=19, minute=30))
+scheduler.add_job(send_daily_survey, CronTrigger(hour=12, minute=0))
+scheduler.add_job(report_to_chef, CronTrigger(hour=16, minute=0))
+scheduler.add_job(clear_records, CronTrigger(hour=19, minute=0))
 scheduler.start()
 
 # ==========================================
