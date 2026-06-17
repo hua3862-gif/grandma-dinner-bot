@@ -133,7 +133,7 @@ def send_daily_survey():
         with ApiClient(configuration) as api_client:
             line_bot_api = MessagingApi(api_client)
             flex_card = create_dinner_card()
-            flex_message = FlexMessage(alt_text="📢 晚餐調查開始囉！", container=flex_card)
+            flex_message = FlexMessage(alt_text="🍴 晚餐調查開始囉！", contents=flex_card)
             line_bot_api.push_message(PushMessageRequest(to=SURVEY_TARGET_ID, messages=[flex_message]))
 
 def report_to_chef():
