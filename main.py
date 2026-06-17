@@ -195,10 +195,9 @@ def clear_records():
 
 # 啟動定時任務 (🌟 這裡已修改為 12:00 / 16:00 / 19:00，且完全沒有前導零語法錯誤)
 scheduler = BackgroundScheduler(timezone="Asia/Taipei")
-#scheduler.add_job(send_daily_survey, CronTrigger(hour=16, minute=35))
-#scheduler.add_job(report_to_chef, CronTrigger(hour=16, minute=0))
-#scheduler.add_job(clear_records, CronTrigger(hour=19, minute=0))
-scheduler.add_job(send_daily_survey, next_run_time=datetime.now())
+scheduler.add_job(send_daily_survey, CronTrigger(hour=16, minute=35))
+scheduler.add_job(report_to_chef, CronTrigger(hour=16, minute=0))
+scheduler.add_job(clear_records, CronTrigger(hour=19, minute=0))
 scheduler.start()
 
 # ==========================================
@@ -296,3 +295,4 @@ def handle_message(event: MessageEvent):
 @app.get("/")
 def read_root():
     return {"status": "完美升級版晚餐與便當調查機器人運作中！"}
+send_daily_survey()
