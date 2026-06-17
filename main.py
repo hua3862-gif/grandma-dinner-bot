@@ -125,8 +125,8 @@ def create_bento_card():
 # ==========================================
 def send_daily_survey():
     """調整功能：中午 12:00 發送晚餐問卷 (自動過濾假日與放假前夕)"""
-    #if not should_send_survey_today():
-        #return
+    if not should_send_survey_today():
+        return
         
     logger.info("中午 12:00 發送晚餐問卷調查...")
     if SURVEY_TARGET_ID.startswith("C") or SURVEY_TARGET_ID.startswith("R") or SURVEY_TARGET_ID.startswith("U"):
@@ -295,4 +295,4 @@ def handle_message(event: MessageEvent):
 @app.get("/")
 def read_root():
     return {"status": "完美升級版晚餐與便當調查機器人運作中！"}
-send_daily_survey()
+#send_daily_survey()
