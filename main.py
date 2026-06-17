@@ -125,8 +125,8 @@ def create_bento_card():
 # ==========================================
 def send_daily_survey():
     """調整功能：中午 12:00 發送晚餐問卷 (自動過濾假日與放假前夕)"""
-    if not should_send_survey_today():
-        return
+    #if not should_send_survey_today():
+        #return
         
     logger.info("中午 12:00 發送晚餐問卷調查...")
     if SURVEY_TARGET_ID.startswith("C") or SURVEY_TARGET_ID.startswith("R") or SURVEY_TARGET_ID.startswith("U"):
@@ -195,7 +195,7 @@ def clear_records():
 
 # 啟動定時任務 (🌟 這裡已修改為 12:00 / 16:00 / 19:00，且完全沒有前導零語法錯誤)
 scheduler = BackgroundScheduler(timezone="Asia/Taipei")
-scheduler.add_job(send_daily_survey, CronTrigger(hour=12, minute=0))
+scheduler.add_job(send_daily_survey, CronTrigger(hour=15, minute=20))
 scheduler.add_job(report_to_chef, CronTrigger(hour=16, minute=0))
 scheduler.add_job(clear_records, CronTrigger(hour=19, minute=0))
 scheduler.start()
