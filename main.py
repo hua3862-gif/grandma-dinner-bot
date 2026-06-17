@@ -251,7 +251,7 @@ def handle_postback(event: PostbackEvent):
                     reply_token=event.reply_token,
                     messages=[
                         TextMessage(text=reply_text),
-                        FlexMessage(alt_text="🍱 續問：明天要帶便當嗎？", container=bento_card)
+                        FlexMessage(alt_text="🍱 續問：明天要帶便當嗎？", contents=bento_card)
                     ]
                 )
             )
