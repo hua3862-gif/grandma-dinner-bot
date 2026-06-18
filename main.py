@@ -124,8 +124,8 @@ def create_bento_card():
 # ==========================================
 def send_daily_survey():
     """中午 12:00 發送晚餐問卷 (自動過濾假日與放假前夕)"""
-    if not should_send_survey_today():
-        return
+    #if not should_send_survey_today():
+        #return
         
     logger.info("中午 12:00 發送晚餐問卷調查...")
     if SURVEY_TARGET_ID.startswith("C") or SURVEY_TARGET_ID.startswith("R") or SURVEY_TARGET_ID.startswith("U"):
@@ -137,8 +137,8 @@ def send_daily_survey():
 
 def report_to_chef():
     """下午 16:00 統計名單，列出人數與【詳細人員名字】回報給大廚"""
-    if not should_send_survey_today():
-        return
+    #if not should_send_survey_today():
+        #return
         
     logger.info("下午 16:00 開始執行大廚回報...")
     if not REPORT_TARGET_ID.startswith("C") and not REPORT_TARGET_ID.startswith("R") and not REPORT_TARGET_ID.startswith("U"):
@@ -194,8 +194,8 @@ def clear_records():
 
 # 啟動定時任務
 scheduler = BackgroundScheduler(timezone="Asia/Taipei")
-scheduler.add_job(send_daily_survey, CronTrigger(hour=14, minute=40, timezone="Asia/Taipei"))
-scheduler.add_job(report_to_chef, CronTrigger(hour=14, minute=45, timezone="Asia/Taipei"))
+scheduler.add_job(send_daily_survey, CronTrigger(hour=14, minute=45, timezone="Asia/Taipei"))
+scheduler.add_job(report_to_chef, CronTrigger(hour=14, minute=50, timezone="Asia/Taipei"))
 scheduler.add_job(clear_records, CronTrigger(hour=19, minute=0, timezone="Asia/Taipei"))
 scheduler.start()
 
