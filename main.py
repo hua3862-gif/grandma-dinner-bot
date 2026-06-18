@@ -33,14 +33,14 @@ app = FastAPI()
 CHANNEL_SECRET = "e62b1fccd5bc395a1ed19bd7c7015b92"
 CHANNEL_ACCESS_TOKEN = "v8ticoY2QbrUdRcQur6CyKorrAwgOVZDWiJuGMILlB8DlYrV8iIvwTJschTzalb9iOofv2cVaQn+PEcVPmpSjxz0t3YX151hhvU5M04SWh316K7PuiZATSsoXDEhwpDklyw0tJV9pUSI4J6rd6ylnwdB04t89/1O/w1cDnyilFU="
 
-# 3. 目標 ID 設定 (已保留您抓取的真實群組 ID)
+# 3. 目標 ID 設定
 SURVEY_TARGET_ID = "Cacfb77eec8efc921e271c78c8a6b843c"
 REPORT_TARGET_ID = "C80c5607b6b214a6e7e5b31d67440a796"
 
 configuration = Configuration(access_token=CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(CHANNEL_SECRET)
 
-# 4. 資料儲存庫 (維持空空的，機器人運作時會自動寫入)
+# 4. 資料儲存庫
 dinner_records = {}
 known_members = {}
 
@@ -51,12 +51,11 @@ def should_send_survey_today():
     today = datetime.now()
     weekday = today.weekday() # 0=週一, ..., 4=週五, 5=週六, 6=週日
     
-    # 🌟 新增需求：如果是週五(4)或週六(5)，代表隔天放假，不用進行調查
+    # 如果是週五(4)或週六(5)，代表隔天放假，不用進行調查
     if weekday in [4, 5]:
         logger.info("今天為放假前夕（週五/週六），跳過調查。")
         return False
 
-    # 這裡原本的春節/國定假日判定依然保留
     taiwan_holidays = [
         "2026-01-01", "2026-02-16", "2026-02-17", "2026-02-18", "2026-02-19", "2026-02-20", 
         "2026-02-23", "2026-02-27", "2026-04-03", "2026-04-06", "2026-06-19", "2026-09-25",
@@ -124,7 +123,7 @@ def create_bento_card():
 # 【定時任務】排程管理
 # ==========================================
 def send_daily_survey():
-    """調整功能：中午 12:00 發送晚餐問卷 (自動過濾假日與放假前夕)"""
+    """中午 12:00 發送晚餐問卷 (自動過濾假日與放假前夕)"""
     if not should_send_survey_today():
         return
         
@@ -137,7 +136,7 @@ def send_daily_survey():
             line_bot_api.push_message(PushMessageRequest(to=SURVEY_TARGET_ID, messages=[flex_message]))
 
 def report_to_chef():
-    """調整功能：下午 16:00 統計名單，列出人數與【詳細人員名字】回報給大廚"""
+    """下午 16:00 統計名單，列出人數與【詳細人員名字】回報給大廚"""
     if not should_send_survey_today():
         return
         
@@ -168,7 +167,7 @@ def report_to_chef():
     # 找出未回覆的人
     unreplied_list = [name for uid, name in known_members.items() if uid not in replied_users]
 
-    # 彙整報告文字 (包含詳細姓名點名)
+    # 彙整報告文字
     report_text = f"📋 【今日晚餐與明日便當報告】 ({datetime.now().strftime('%m/%d')})\n\n"
     report_text += f"🏠 晚餐統計 Statistik makan malam：\n"
     report_text += f" 👥 回家吃飯總人數：{len(on_time_list) + len(late_list)} 人\n"
@@ -181,7 +180,7 @@ def report_to_chef():
     report_text += f" ❌ 不需要者 Tidak butuh ({len(bento_no_list)}人)：{', '.join(bento_no_list) if bento_no_list else '無'}\n\n"
     
     report_text += f"⚠️ 尚未回覆人員 Belum menanggapi：\n"
-    report_text += f" 🕒 {', '.join(unreplied_list) if unreplied_list else '全數皆已回覆 所有問題皆已解答！'}"
+    report_text += f" 🕒 {', '.join(unreplied_list) if unreplied_list else '大家皆已回覆完畢！'}"
 
     with ApiClient(configuration) as api_client:
         line_bot_api = MessagingApi(api_client)
@@ -193,11 +192,11 @@ def clear_records():
     dinner_records.clear()
     logger.info("今日晚餐及便當資料已重置。")
 
-# 啟動定時任務 (🌟 這裡已修改為 12:00 / 16:00 / 19:00，且完全沒有前導零語法錯誤)
+# 啟動定時任務
 scheduler = BackgroundScheduler(timezone="Asia/Taipei")
-scheduler.add_job(send_daily_survey, CronTrigger(hour=16, minute=35))
-scheduler.add_job(report_to_chef, CronTrigger(hour=16, minute=0))
-scheduler.add_job(clear_records, CronTrigger(hour=19, minute=0))
+scheduler.add_job(send_daily_survey, CronTrigger(hour=14, minute=40, timezone="Asia/Taipei"))
+scheduler.add_job(report_to_chef, CronTrigger(hour=14, minute=45, timezone="Asia/Taipei"))
+scheduler.add_job(clear_records, CronTrigger(hour=19, minute=0, timezone="Asia/Taipei"))
 scheduler.start()
 
 # ==========================================
@@ -233,6 +232,8 @@ def handle_postback(event: PostbackEvent):
             user_name = "神秘家人"
     
     known_members[user_id] = user_name
+    
+    # 修正點：一開始就建立完整的預設結構，避免後續 bento 欄位遺失
     if user_id not in dinner_records:
         dinner_records[user_id] = {"name": user_name, "dinner": "未填", "bento": "未填"}
 
@@ -293,6 +294,6 @@ def handle_message(event: MessageEvent):
             line_bot_api.reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=reply_id_text)]))
 
 @app.get("/")
+@app.head("/")
 def read_root():
     return {"status": "完美升級版晚餐與便當調查機器人運作中！"}
-#send_daily_survey()
