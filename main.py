@@ -42,10 +42,18 @@ handler = WebhookHandler(CHANNEL_SECRET)
 
 # 4. 資料儲存庫
 dinner_records = {}
-known_members = {}
+
+# 5. 🌟 終極修正：固定家庭成員名單（請把家人的 LINE User ID 填在這裡）
+# 這樣一來，就算沒人講話，系統也知道家裡有這 3 個人，沒回覆時就會抓出名字！
+FIXED_MEMBERS = {
+    "hua3862": "瑋勵bos",
+    "a0926a266479a": "瓊瑛pemilik rumah kontrakan",
+    "0905731360": "子晴saudari",
+    "sammi987654321": "小喬adik"
+}
 
 # ==========================================
-# 【新核心邏輯】精準判斷「明天」需不需要帶便當
+# 精準判斷「明天」需不需要帶便當
 # ==========================================
 def should_send_bento_tomorrow():
     """判定明天是否需要帶便當（如果明天是週末或國定假日，今天點晚餐就不續問便當）"""
@@ -75,7 +83,6 @@ def should_send_bento_tomorrow():
     if tomorrow_str in taiwan_makeup_workdays:
         return True  
         
-    # 預設：其餘情況明天都要帶便當
     return True
 
 # ==========================================
@@ -129,7 +136,6 @@ def create_bento_card():
 # ==========================================
 def send_daily_survey():
     """中午 12:00 發送晚餐問卷 (週六、週日絕對不啟動)"""
-    # 限制：週六(5)與週日(6)絕對不發放問卷
     if datetime.now().weekday() in [5, 6]:
         logger.info("今天為週末（週六/週日），完全跳過晚餐調查。")
         return
@@ -158,6 +164,7 @@ def report_to_chef():
     bento_no_list = []
     replied_users = set()
 
+    # 讀取已登記回覆的資料
     for uid, info in dinner_records.items():
         name = info["name"]
         replied_users.add(uid)
@@ -169,17 +176,17 @@ def report_to_chef():
         if info.get("bento") == "要": bento_yes_list.append(name)
         elif info.get("bento") == "不要": bento_no_list.append(name)
 
-    unreplied_list = [name for uid, name in known_members.items() if uid not in replied_users]
+    # 🌟 修正：從「固定成員名單」中比對誰還沒有回覆
+    unreplied_list = [name for uid, name in FIXED_MEMBERS.items() if uid not in replied_users]
 
     report_text = f"📋 【今日晚餐與明日便當報告】 ({datetime.now().strftime('%m/%d')})\n\n"
     report_text += f"🏠 晚餐統計 Statistik makan malam：\n"
-    # 🌟 這裡已加上印尼文對照：Total orang yang pulang makan
+    # 🌟 已應要求修改：👥 回家吃飯總人數後面加上印尼文對照
     report_text += f" 👥 回家吃飯總人數 Total orang yang pulang makan：{len(on_time_list) + len(late_list)} 人\n"
     report_text += f"   • 準時到家 Pulang tepat waktu ({len(on_time_list)}人)：{', '.join(on_time_list) if on_time_list else '無'}\n"
     report_text += f"   • 晚一點到 Datang lambat ({len(late_list)}人)：{', '.join(late_list) if late_list else '無'}\n"
     report_text += f" ❌ 不用留飯 Tidak perlu makanan ({len(no_dinner_list)}人)：{', '.join(no_dinner_list) if no_dinner_list else '無'}\n\n"
     
-    # 判斷明天如果不用帶便當，報告內就加上提示備註
     if not should_send_bento_tomorrow():
         report_text += f"🍱 明日便當統計：\n 💡 明日放假，不進行便當統計。\n\n"
     else:
@@ -201,7 +208,7 @@ def clear_records():
     logger.info("今日晚餐及便當資料已重置。")
 
 # ==========================================
-# 啟動定時任務（已恢復正式家庭作息時間）
+# 啟動定時任務（已全面恢復正式家庭作息時間）
 # ==========================================
 scheduler = BackgroundScheduler(timezone="Asia/Taipei")
 scheduler.add_job(send_daily_survey, CronTrigger(hour=12, minute=0, timezone="Asia/Taipei"))
@@ -229,19 +236,20 @@ async def callback(request: Request):
 # ==========================================
 @handler.add(PostbackEvent)
 def handle_postback(event: PostbackEvent):
-    global dinner_records, known_members
+    global dinner_records
     data = event.postback.data
     user_id = event.source.user_id
     
-    with ApiClient(configuration) as api_client:
-        line_bot_api = MessagingApi(api_client)
-        try:
-            profile = line_bot_api.get_profile(user_id)
-            user_name = profile.display_name
-        except Exception:
-            user_name = "神秘家人"
-    
-    known_members[user_id] = user_name
+    # 優先從固定名單抓名字，抓不到才去查 LINE Profile
+    user_name = FIXED_MEMBERS.get(user_id)
+    if not user_name:
+        with ApiClient(configuration) as api_client:
+            line_bot_api = MessagingApi(api_client)
+            try:
+                profile = line_bot_api.get_profile(user_id)
+                user_name = profile.display_name
+            except Exception:
+                user_name = "神秘家人"
     
     if user_id not in dinner_records:
         dinner_records[user_id] = {"name": user_name, "dinner": "未填", "bento": "未填"}
@@ -295,17 +303,8 @@ def handle_postback(event: PostbackEvent):
 # ==========================================
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event: MessageEvent):
-    global known_members
     text = event.message.text.strip()
     user_id = event.source.user_id
-    
-    with ApiClient(configuration) as api_client:
-        line_bot_api = MessagingApi(api_client)
-        try:
-            profile = line_bot_api.get_profile(user_id)
-            known_members[user_id] = profile.display_name
-        except Exception:
-            pass
 
     if text.upper() in ["ID", "帳號"]:
         source_type = event.source.type
