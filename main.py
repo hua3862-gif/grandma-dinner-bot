@@ -135,9 +135,9 @@ def create_bento_card():
 # 【定時任務】排程管理
 # ==========================================
 def send_daily_survey():
-    """中午 12:00 發送晚餐問卷 (週六、週日絕對不啟動)"""
-    if datetime.now().weekday() in [5, 6]:
-        logger.info("今天為週末（週六/週日），完全跳過晚餐調查。")
+    """中午 12:00 發送晚餐問卷 (放假日絕對不啟動)"""
+    if is_today_holiday():
+        logger.info("今天為放假日（週末或國定假日），完全跳過晚餐調查。")
         return
         
     logger.info("觸發晚餐問卷調查...")
@@ -149,8 +149,9 @@ def send_daily_survey():
             line_bot_api.push_message(PushMessageRequest(to=SURVEY_TARGET_ID, messages=[flex_message]))
 
 def report_to_chef():
-    """下午 16:00 統計名單並回報大廚 (週六、週日絕對不啟動)"""
-    if datetime.now().weekday() in [5, 6]:
+    """下午 16:00 統計名單並回報大廚 (放假日絕對不啟動)"""
+    if is_today_holiday():
+        logger.info("今天為放假日（週末或國定假日），完全跳過大廚回報。")
         return
         
     logger.info("開始執行大廚回報...")
