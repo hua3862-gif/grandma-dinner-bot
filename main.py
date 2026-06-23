@@ -43,14 +43,36 @@ handler = WebhookHandler(CHANNEL_SECRET)
 # 4. 資料儲存庫
 dinner_records = {}
 
-# 5. 🌟 終極修正：固定家庭成員名單（請把家人的 LINE User ID 填在這裡）
-# 這樣一來，就算沒人講話，系統也知道家裡有這 3 個人，沒回覆時就會抓出名字！
+# 5. 固定家庭成員名單（已包含您填入的對應稱呼）
 FIXED_MEMBERS = {
     "hua3862": "瑋勵bos",
     "a0926a266479a": "瓊瑛pemilik rumah kontrakan",
     "0905731360": "子晴saudari",
     "sammi987654321": "小喬adik"
 }
+
+# ==========================================
+# 🌟 核心修正：統一假日判定函式（必須擺在最前面優先宣告）
+# ==========================================
+def is_today_holiday():
+    """判定今天是不是放假日（週末或國定假日）"""
+    today = datetime.now()
+    today_weekday = today.weekday() # 0=週一, ..., 6=週日
+    today_str = today.strftime("%Y-%m-%d")
+    
+    # 1. 如果是週六(5)、週日(6)，就是放假日
+    if today_weekday in [5, 6]:
+        return True
+        
+    # 2. 如果今天在國定假日名單內，就是放假日
+    taiwan_holidays = [
+        "2026-01-01", "2026-02-16", "2026-02-17", "2026-02-18", "2026-02-19", "2026-02-20", 
+        "2026-02-23", "2026-02-27", "2026-04-03", "2026-04-06", "2026-06-19", "2026-09-25",
+    ]
+    if today_str in taiwan_holidays:
+        return True
+        
+    return False
 
 # ==========================================
 # 精準判斷「明天」需不需要帶便當
@@ -61,7 +83,7 @@ def should_send_bento_tomorrow():
     
     # 1. 算出「明天」的日期與星期幾
     tomorrow = today + timedelta(days=1)
-    tomorrow_weekday = tomorrow.weekday() # 0=週一, ..., 4=週五, 5=週六, 6=週日
+    tomorrow_weekday = tomorrow.weekday() # 0=週一, ..., 6=週日
     tomorrow_str = tomorrow.strftime("%Y-%m-%d")
     
     # 2. 如果明天是週六(5)或週日(6)，今天（週五或週六）就不需要統計便當
@@ -177,12 +199,11 @@ def report_to_chef():
         if info.get("bento") == "要": bento_yes_list.append(name)
         elif info.get("bento") == "不要": bento_no_list.append(name)
 
-    # 🌟 修正：從「固定成員名單」中比對誰還沒有回覆
+    # 從「固定成員名單」中比對誰還沒有回覆
     unreplied_list = [name for uid, name in FIXED_MEMBERS.items() if uid not in replied_users]
 
     report_text = f"📋 【今日晚餐與明日便當報告】 ({datetime.now().strftime('%m/%d')})\n\n"
     report_text += f"🏠 晚餐統計 Statistik makan malam：\n"
-    # 🌟 已應要求修改：👥 回家吃飯總人數後面加上印尼文對照
     report_text += f" 👥 回家吃飯總人數 Total orang yang pulang makan：{len(on_time_list) + len(late_list)} 人\n"
     report_text += f"   • 準時到家 Pulang tepat waktu ({len(on_time_list)}人)：{', '.join(on_time_list) if on_time_list else '無'}\n"
     report_text += f"   • 晚一點到 Datang lambat ({len(late_list)}人)：{', '.join(late_list) if late_list else '無'}\n"
@@ -209,7 +230,7 @@ def clear_records():
     logger.info("今日晚餐及便當資料已重置。")
 
 # ==========================================
-# 啟動定時任務（已全面恢復正式家庭作息時間）
+# 啟動定時任務（正常家庭作息時間：12:00 / 16:00 / 19:00）
 # ==========================================
 scheduler = BackgroundScheduler(timezone="Asia/Taipei")
 scheduler.add_job(send_daily_survey, CronTrigger(hour=12, minute=0, timezone="Asia/Taipei"))
