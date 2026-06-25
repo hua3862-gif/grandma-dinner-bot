@@ -254,7 +254,7 @@ async def callback(request: Request):
     return PlainTextResponse("OK")
 
 # ==========================================
-# 接收並記錄按鈕點擊
+# 接收並記錄按鈕點擊（新增 Log 詳細記錄功能）
 # ==========================================
 @handler.add(PostbackEvent)
 def handle_postback(event: PostbackEvent):
@@ -284,6 +284,9 @@ def handle_postback(event: PostbackEvent):
         if "dinner" in params:
             dinner_records[user_id]["dinner"] = params["dinner"]
             
+            # 🆕 增強 Log：有人選晚餐時，立刻印在後台
+            logger.info(f"📢 [收到回報] {user_name} 登記晚餐：【{params['dinner']}】")
+            
             # 精準判定：點完晚餐後，檢查明天是不是放假
             if not should_send_bento_tomorrow():
                 dinner_records[user_id]["bento"] = "不需便當"
@@ -311,6 +314,11 @@ def handle_postback(event: PostbackEvent):
         elif "bento" in params:
             dinner_records[user_id]["bento"] = params["bento"]
             current_dinner = dinner_records[user_id]["dinner"]
+            
+            # 🆕 增強 Log：有人選便當時，立刻印在後台，並秀出當前完整暫存紀錄
+            logger.info(f"📢 [收到回報] {user_name} 登記便當：【{params['bento']}】")
+            logger.info(f"📊 當前記憶體暫存 (dinner_records): {json.dumps(dinner_records, ensure_ascii=False)}")
+            
             final_text = f"🎉 感謝回報！\n今日晚餐：【{current_dinner}】\n明日便當：【{params['bento']}帶便當】"
             
             line_bot_api.reply_message(
@@ -321,13 +329,43 @@ def handle_postback(event: PostbackEvent):
             )
 
 # ==========================================
-# 自動收集名單與查 ID 
+# 自動收集名單與查 ID / 提早查看進度
 # ==========================================
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event: MessageEvent):
     text = event.message.text.strip()
     user_id = event.source.user_id
 
+    # 🆕 新增隱藏功能：隨時輸入「進度」查看目前回覆狀況
+    if text == "進度":
+        on_time = []
+        late = []
+        no_dinner = []
+        replied = set()
+        
+        for uid, info in dinner_records.items():
+            name = info["name"]
+            replied.add(uid)
+            if info.get("dinner") == "準時": on_time.append(name)
+            elif info.get("dinner") == "晚一點": late.append(name)
+            elif info.get("dinner") == "不留飯": no_dinner.append(name)
+            
+        unreplied = [name for uid, name in FIXED_MEMBERS.items() if uid not in replied]
+        
+        status_text = f"🔍 【當前晚餐回報進度】\n\n"
+        status_text += f"✅ 已回覆：\n"
+        status_text += f" • 準時 ({len(on_time)}人)：{', '.join(on_time) if on_time else '無'}\n"
+        status_text += f" • 晚點 ({len(late)}人)：{', '.join(late) if late_list else '無'}\n"
+        status_text += f" • 不吃 ({len(no_dinner)}人)：{', '.join(no_dinner) if no_dinner else '無'}\n\n"
+        status_text += f"⚠️ 尚未回覆 ({len(unreplied)}人)：\n"
+        status_text += f" • {', '.join(unreplied) if unreplied else '大家都填寫完畢囉！'}"
+        
+        with ApiClient(configuration) as api_client:
+            line_bot_api = MessagingApi(api_client)
+            line_bot_api.reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=status_text)]))
+            return
+
+    # 原有的查 ID 功能
     if text.upper() in ["ID", "帳號"]:
         source_type = event.source.type
         reply_id_text = f"👥 本群組 ID：\n{event.source.group_id}" if source_type == "group" else f"👤 您的個人 ID：\n{user_id}"
