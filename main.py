@@ -46,7 +46,7 @@ dinner_records = {}
 # 5. 固定家庭成員名單（已包含您填入的對應稱呼）
 FIXED_MEMBERS = {
     "U585d02d08fe8913778c48379ad64f8a6": "瑋勵bos",
-    "a0926a266479a": "瓊瑛pemilik rumah kontrakan",
+    "Ub46ef25cf97524c6d86f60fea1cc0af9": "瓊瑛pemilik rumah kontrakan",
     "U3ba83a8c3e64f841d973243d2e2fa57f": "子晴saudari",
     "U9155cb922c0498f86a2d2f2bb528b97e": "小喬adik"
 }
