@@ -329,14 +329,14 @@ def handle_postback(event: PostbackEvent):
             )
 
 # ==========================================
-# 自動收集名單與查 ID / 提早查看進度
+# 自動收集名單與查 ID / 提早查看進度（修正版）
 # ==========================================
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event: MessageEvent):
     text = event.message.text.strip()
     user_id = event.source.user_id
 
-    # 🆕 新增隱藏功能：隨時輸入「進度」查看目前回覆狀況
+    # 隨時輸入「進度」查看目前回覆狀況
     if text == "進度":
         on_time = []
         late = []
@@ -355,7 +355,7 @@ def handle_message(event: MessageEvent):
         status_text = f"🔍 【當前晚餐回報進度】\n\n"
         status_text += f"✅ 已回覆：\n"
         status_text += f" • 準時 ({len(on_time)}人)：{', '.join(on_time) if on_time else '無'}\n"
-        status_text += f" • 晚點 ({len(late)}人)：{', '.join(late) if late_list else '無'}\n"
+        status_text += f" • 晚點 ({len(late)}人)：{', '.join(late) if late else '無'}\n"  # 👈 這裡已修正為 late
         status_text += f" • 不吃 ({len(no_dinner)}人)：{', '.join(no_dinner) if no_dinner else '無'}\n\n"
         status_text += f"⚠️ 尚未回覆 ({len(unreplied)}人)：\n"
         status_text += f" • {', '.join(unreplied) if unreplied else '大家都填寫完畢囉！'}"
