@@ -384,7 +384,9 @@ def handle_message(event: MessageEvent):
             line_bot_api = MessagingApi(api_client)
             line_bot_api.reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=reply_id_text)]))
 
+from fastapi.responses import JSONResponse
+
 @app.get("/")
 @app.head("/")
 def read_root():
-    return {"status": "完美升級版晚餐與便當調查機器人運作中！"}
+    return JSONResponse(content={"status": "完美升級版晚餐與便當調查機器人運作中！"})
