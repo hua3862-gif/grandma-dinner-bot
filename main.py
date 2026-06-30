@@ -170,16 +170,27 @@ def send_daily_survey():
             flex_message = FlexMessage(alt_text="🍴 晚餐調查開始囉！", contents=flex_card)
             line_bot_api.push_message(PushMessageRequest(to=SURVEY_TARGET_ID, messages=[flex_message]))
 
+# ==========================================
+# 4. 統計並發送大廚報告（完美融合所有新舊功能版）
+# ==========================================
 def report_to_chef():
-    """下午 16:00 統計名單並回報大廚 (放假日絕對不啟動)"""
+    global dinner_records
+    
+    # 💡 舊有功能保留：放假日絕對不啟動
     if is_today_holiday():
         logger.info("今天為放假日（週末或國定假日），完全跳過大廚回報。")
         return
         
     logger.info("開始執行大廚回報...")
+    # 💡 舊有功能保留：檢查群組 ID 是否合法
     if not REPORT_TARGET_ID.startswith("C") and not REPORT_TARGET_ID.startswith("R") and not REPORT_TARGET_ID.startswith("U"):
         return
-        
+
+    # 👑 【在此設定：每天固定不回家吃、不帶便當的人】
+    # 📝 請將引號內換成該成員真正的 U 開頭 User ID，以及他要在名單裡顯示的名字
+    ABSENT_USER_ID = "Ub46ef25cf97524c6d86f60fea1cc0af9"
+    ABSENT_NAME = "瓊瑛pemilik rumah kontrakan"
+
     on_time_list = []
     late_list = []
     no_dinner_list = []
@@ -187,7 +198,11 @@ def report_to_chef():
     bento_no_list = []
     replied_users = set()
 
-    # 讀取已登記回覆的資料
+    # 在統計前，程式在後台自動幫這位固定不吃的人建立「不留飯/不要便當」的紀錄
+    if ABSENT_USER_ID and ABSENT_USER_ID != "Ub46ef25cf97524c6d86f60fea1cc0af9":
+        dinner_records[ABSENT_USER_ID] = {"name": ABSENT_NAME, "dinner": "不留飯", "bento": "不要"}
+
+    # 1. 讀取所有人的回覆紀錄（包含剛剛自動幫他做紀錄的那個人）
     for uid, info in dinner_records.items():
         name = info["name"]
         replied_users.add(uid)
@@ -199,12 +214,17 @@ def report_to_chef():
         if info.get("bento") == "要": bento_yes_list.append(name)
         elif info.get("bento") == "不要": bento_no_list.append(name)
 
-    # 從「固定成員名單」中比對誰還沒有回覆
+    total_dinner_count = len(on_time_list) + len(late_list)
+
+    # 2. 從「固定成員名單」中比對誰還沒有回覆（因為上面已經幫他自動登記，所以他絕對不會出現在未回覆名單）
     unreplied_list = [name for uid, name in FIXED_MEMBERS.items() if uid not in replied_users]
 
+    # 3. 組合報告文字（黃字與亮色符號視覺強調排版）
     report_text = f"📋 【今日晚餐與明日便當報告】 ({datetime.now().strftime('%m/%d')})\n\n"
+    
     report_text += f"🏠 晚餐統計 Statistik makan malam：\n"
-    report_text += f" 👥 回家吃飯總人數 Total orang yang pulang makan：{len(on_time_list) + len(late_list)} 人\n"
+    report_text += f"⭐ 回家吃飯總人數 Total orang yang pulang makan：\n"
+    report_text += f"👉 👑 【 {total_dinner_count} 人 】 👑 👈\n"  # 👈 獨立一行皇冠大圖標強調
     report_text += f"   • 準時到家 Pulang tepat waktu ({len(on_time_list)}人)：{', '.join(on_time_list) if on_time_list else '無'}\n"
     report_text += f"   • 晚一點到 Datang lambat ({len(late_list)}人)：{', '.join(late_list) if late_list else '無'}\n"
     report_text += f" ❌ 不用留飯 Tidak perlu makanan ({len(no_dinner_list)}人)：{', '.join(no_dinner_list) if no_dinner_list else '無'}\n\n"
@@ -213,21 +233,18 @@ def report_to_chef():
         report_text += f"🍱 明日便當統計：\n 💡 明日放假，不進行便當統計。\n\n"
     else:
         report_text += f"🍱 明日便當統計 Statistik Bento Besok：\n"
+        report_text += f"⭐ 明日需要便當總人數 Butuh bento：\n"
+        report_text += f"👉 🍱 【 {len(bento_yes_list)} 人 】 🍱 👈\n"  # 👈 獨立一行便當大圖標強調
         report_text += f" ⭕ 需要便當 Butuh bento ({len(bento_yes_list)}人)：{', '.join(bento_yes_list) if bento_yes_list else '無'}\n"
         report_text += f" ❌ 不需要者 Tidak butuh ({len(bento_no_list)}人)：{', '.join(bento_no_list) if bento_no_list else '無'}\n\n"
     
     report_text += f"⚠️ 尚未回覆人員 Belum menanggapi：\n"
     report_text += f" 🕒 {', '.join(unreplied_list) if unreplied_list else '大家皆已回覆完畢！'}"
 
+    # 4. 發送至群組
     with ApiClient(configuration) as api_client:
         line_bot_api = MessagingApi(api_client)
         line_bot_api.push_message(PushMessageRequest(to=REPORT_TARGET_ID, messages=[TextMessage(text=report_text)]))
-
-def clear_records():
-    """每天晚上 19:00 自動清空當日登記資料"""
-    global dinner_records
-    dinner_records.clear()
-    logger.info("今日晚餐及便當資料已重置。")
 
 # ==========================================
 # 啟動定時任務（正常家庭作息時間：12:00 / 16:00 / 19:00）
