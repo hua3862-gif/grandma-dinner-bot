@@ -43,7 +43,7 @@ handler = WebhookHandler(CHANNEL_SECRET)
 # 4. 資料儲存庫
 dinner_records = {}
 
-# 5. 固定家庭成員名單（已包含您填入的對應稱呼）
+# 5. 固定家庭成員名單
 FIXED_MEMBERS = {
     "U585d02d08fe8913778c48379ad64f8a6": "瑋勵bos",
     "Ub46ef25cf97524c6d86f60fea1cc0af9": "瓊瑛pemilik rumah kontrakan",
@@ -51,8 +51,12 @@ FIXED_MEMBERS = {
     "U9155cb922c0498f86a2d2f2bb528b97e": "小喬adik"
 }
 
+# 🌟 核心邏輯設定：每天固定不回家吃飯、不帶便當的人
+ABSENT_USER_ID = "Ub46ef25cf97524c6d86f60fea1cc0af9"
+ABSENT_NAME = "瓊瑛pemilik rumah kontrakan"
+
 # ==========================================
-# 🌟 核心修正：統一假日判定函式（必須擺在最前面優先宣告）
+# 🌟 統一假日判定函式
 # ==========================================
 def is_today_holiday():
     """判定今天是不是放假日（週末或國定假日）"""
@@ -60,11 +64,9 @@ def is_today_holiday():
     today_weekday = today.weekday() # 0=週一, ..., 6=週日
     today_str = today.strftime("%Y-%m-%d")
     
-    # 1. 如果是週六(5)、週日(6)，就是放假日
     if today_weekday in [5, 6]:
         return True
         
-    # 2. 如果今天在國定假日名單內，就是放假日
     taiwan_holidays = [
         "2026-01-01", "2026-02-16", "2026-02-17", "2026-02-18", "2026-02-19", "2026-02-20", 
         "2026-02-23", "2026-02-27", "2026-04-03", "2026-04-06", "2026-06-19", "2026-09-25",
@@ -80,17 +82,13 @@ def is_today_holiday():
 def should_send_bento_tomorrow():
     """判定明天是否需要帶便當（如果明天是週末或國定假日，今天點晚餐就不續問便當）"""
     today = datetime.now()
-    
-    # 1. 算出「明天」的日期與星期幾
     tomorrow = today + timedelta(days=1)
     tomorrow_weekday = tomorrow.weekday() # 0=週一, ..., 6=週日
     tomorrow_str = tomorrow.strftime("%Y-%m-%d")
     
-    # 2. 如果明天是週六(5)或週日(6)，今天（週五或週六）就不需要統計便當
     if tomorrow_weekday in [5, 6]:
         return False
 
-    # 3. 如果明天在國定假日名單內（連假前夕判定），今天就不需要統計便當
     taiwan_holidays = [
         "2026-01-01", "2026-02-16", "2026-02-17", "2026-02-18", "2026-02-19", "2026-02-20", 
         "2026-02-23", "2026-02-27", "2026-04-03", "2026-04-06", "2026-06-19", "2026-09-25",
@@ -98,7 +96,6 @@ def should_send_bento_tomorrow():
     if tomorrow_str in taiwan_holidays:
         return False
         
-    # 4. 如果明天是補班日，哪怕明天是週六，今天也一定要統計便當！
     taiwan_makeup_workdays = [
         "2026-02-07",
     ]
@@ -154,15 +151,22 @@ def create_bento_card():
     return FlexContainer.from_dict(flex_json)
 
 # ==========================================
-# 【定時任務】排程管理
+# 【定時任務】問卷發送
 # ==========================================
 def send_daily_survey():
     """中午 12:00 發送晚餐問卷 (放假日絕對不啟動)"""
+    global dinner_records
     if is_today_holiday():
         logger.info("今天為放假日（週末或國定假日），完全跳過晚餐調查。")
         return
         
     logger.info("觸發晚餐問卷調查...")
+    
+    # 🌟 啟動調查時，背後自動幫固定不吃的成員填妥紀錄
+    if ABSENT_USER_ID:
+        dinner_records[ABSENT_USER_ID] = {"name": ABSENT_NAME, "dinner": "不留飯", "bento": "不要"}
+        logger.info(f"🤖 系統已自動將 {ABSENT_NAME} 登記為不留飯與不需要便當。")
+
     if SURVEY_TARGET_ID.startswith("C") or SURVEY_TARGET_ID.startswith("R") or SURVEY_TARGET_ID.startswith("U"):
         with ApiClient(configuration) as api_client:
             line_bot_api = MessagingApi(api_client)
@@ -171,25 +175,22 @@ def send_daily_survey():
             line_bot_api.push_message(PushMessageRequest(to=SURVEY_TARGET_ID, messages=[flex_message]))
 
 # ==========================================
-# 4. 統計並發送大廚報告（完美融合所有新舊功能版）
+# 統計並發送大廚報告（16:00 視覺強調終極版）
 # ==========================================
 def report_to_chef():
     global dinner_records
     
-    # 💡 舊有功能保留：放假日絕對不啟動
     if is_today_holiday():
         logger.info("今天為放假日（週末或國定假日），完全跳過大廚回報。")
         return
         
     logger.info("開始執行大廚回報...")
-    # 💡 舊有功能保留：檢查群組 ID 是否合法
     if not REPORT_TARGET_ID.startswith("C") and not REPORT_TARGET_ID.startswith("R") and not REPORT_TARGET_ID.startswith("U"):
         return
 
-    # 👑 【在此設定：每天固定不回家吃、不帶便當的人】
-    # 📝 請將引號內換成該成員真正的 U 開頭 User ID，以及他要在名單裡顯示的名字
-    ABSENT_USER_ID = "Ub46ef25cf97524c6d86f60fea1cc0af9"
-    ABSENT_NAME = "瓊瑛pemilik rumah kontrakan"
+    # 保險防呆：如果中午沒觸發到，16:00 統計前再確保一次固定成員有被自動塞入
+    if ABSENT_USER_ID:
+        dinner_records[ABSENT_USER_ID] = {"name": ABSENT_NAME, "dinner": "不留飯", "bento": "不要"}
 
     on_time_list = []
     late_list = []
@@ -198,11 +199,6 @@ def report_to_chef():
     bento_no_list = []
     replied_users = set()
 
-    # 在統計前，程式在後台自動幫這位固定不吃的人建立「不留飯/不要便當」的紀錄
-    if ABSENT_USER_ID and ABSENT_USER_ID != "Ub46ef25cf97524c6d86f60fea1cc0af9":
-        dinner_records[ABSENT_USER_ID] = {"name": ABSENT_NAME, "dinner": "不留飯", "bento": "不要"}
-
-    # 1. 讀取所有人的回覆紀錄（包含剛剛自動幫他做紀錄的那個人）
     for uid, info in dinner_records.items():
         name = info["name"]
         replied_users.add(uid)
@@ -216,15 +212,14 @@ def report_to_chef():
 
     total_dinner_count = len(on_time_list) + len(late_list)
 
-    # 2. 從「固定成員名單」中比對誰還沒有回覆（因為上面已經幫他自動登記，所以他絕對不會出現在未回覆名單）
     unreplied_list = [name for uid, name in FIXED_MEMBERS.items() if uid not in replied_users]
 
-    # 3. 組合報告文字（黃字與亮色符號視覺強調排版）
+    # 組合報告文字（黃色/亮色符號視覺強調排版）
     report_text = f"📋 【今日晚餐與明日便當報告】 ({datetime.now().strftime('%m/%d')})\n\n"
     
     report_text += f"🏠 晚餐統計 Statistik makan malam：\n"
     report_text += f"⭐ 回家吃飯總人數 Total orang yang pulang makan：\n"
-    report_text += f"👉 👑 【 {total_dinner_count} 人 】 👑 👈\n"  # 👈 獨立一行皇冠大圖標強調
+    report_text += f"👉 👑 【 {total_dinner_count} 人 】 👑 👈\n"  # 👑 獨立一行視覺放大
     report_text += f"   • 準時到家 Pulang tepat waktu ({len(on_time_list)}人)：{', '.join(on_time_list) if on_time_list else '無'}\n"
     report_text += f"   • 晚一點到 Datang lambat ({len(late_list)}人)：{', '.join(late_list) if late_list else '無'}\n"
     report_text += f" ❌ 不用留飯 Tidak perlu makanan ({len(no_dinner_list)}人)：{', '.join(no_dinner_list) if no_dinner_list else '無'}\n\n"
@@ -234,20 +229,25 @@ def report_to_chef():
     else:
         report_text += f"🍱 明日便當統計 Statistik Bento Besok：\n"
         report_text += f"⭐ 明日需要便當總人數 Butuh bento：\n"
-        report_text += f"👉 🍱 【 {len(bento_yes_list)} 人 】 🍱 👈\n"  # 👈 獨立一行便當大圖標強調
+        report_text += f"👉 🍱 【 {len(bento_yes_list)} 人 】 🍱 👈\n"  # 🍱 獨立一行視覺放大
         report_text += f" ⭕ 需要便當 Butuh bento ({len(bento_yes_list)}人)：{', '.join(bento_yes_list) if bento_yes_list else '無'}\n"
         report_text += f" ❌ 不需要者 Tidak butuh ({len(bento_no_list)}人)：{', '.join(bento_no_list) if bento_no_list else '無'}\n\n"
     
     report_text += f"⚠️ 尚未回覆人員 Belum menanggapi：\n"
     report_text += f" 🕒 {', '.join(unreplied_list) if unreplied_list else '大家皆已回覆完畢！'}"
 
-    # 4. 發送至群組
     with ApiClient(configuration) as api_client:
         line_bot_api = MessagingApi(api_client)
         line_bot_api.push_message(PushMessageRequest(to=REPORT_TARGET_ID, messages=[TextMessage(text=report_text)]))
 
+def clear_records():
+    """每天晚上 19:00 自動清空當日登記資料"""
+    global dinner_records
+    dinner_records.clear()
+    logger.info("今日晚餐及便當資料已重置。")
+
 # ==========================================
-# 啟動定時任務（正常家庭作息時間：12:00 / 16:00 / 19:00）
+# 啟動定時任務（12:00 / 16:00 / 19:00）
 # ==========================================
 scheduler = BackgroundScheduler(timezone="Asia/Taipei")
 scheduler.add_job(send_daily_survey, CronTrigger(hour=12, minute=0, timezone="Asia/Taipei"))
@@ -271,7 +271,7 @@ async def callback(request: Request):
     return PlainTextResponse("OK")
 
 # ==========================================
-# 接收並記錄按鈕點擊（新增 Log 詳細記錄功能）
+# 接收並記錄按鈕點擊（Log 增強紀錄版）
 # ==========================================
 @handler.add(PostbackEvent)
 def handle_postback(event: PostbackEvent):
@@ -279,118 +279,7 @@ def handle_postback(event: PostbackEvent):
     data = event.postback.data
     user_id = event.source.user_id
     
-    # 優先從固定名單抓名字，抓不到才去查 LINE Profile
     user_name = FIXED_MEMBERS.get(user_id)
     if not user_name:
         with ApiClient(configuration) as api_client:
-            line_bot_api = MessagingApi(api_client)
-            try:
-                profile = line_bot_api.get_profile(user_id)
-                user_name = profile.display_name
-            except Exception:
-                user_name = "神秘家人"
-    
-    if user_id not in dinner_records:
-        dinner_records[user_id] = {"name": user_name, "dinner": "未填", "bento": "未填"}
-
-    params = dict(param.split("=") for param in data.split("&"))
-    
-    with ApiClient(configuration) as api_client:
-        line_bot_api = MessagingApi(api_client)
-        
-        if "dinner" in params:
-            dinner_records[user_id]["dinner"] = params["dinner"]
-            
-            # 🆕 增強 Log：有人選晚餐時，立刻印在後台
-            logger.info(f"📢 [收到回報] {user_name} 登記晚餐：【{params['dinner']}】")
-            
-            # 精準判定：點完晚餐後，檢查明天是不是放假
-            if not should_send_bento_tomorrow():
-                dinner_records[user_id]["bento"] = "不需便當"
-                final_text = f"👌 已幫您登記晚餐：【{params['dinner']}】。\n🎉 感謝回報！（因明日放假，不統計便當）"
-                line_bot_api.reply_message(
-                    ReplyMessageRequest(
-                        reply_token=event.reply_token,
-                        messages=[TextMessage(text=final_text)]
-                    )
-                )
-            else:
-                # 明天還要上班，正常續問便當卡片
-                reply_text = f"👌 已幫您登記晚餐：【{params['dinner']}】。接下來請選擇明天的便當需求 👇"
-                bento_card = create_bento_card()
-                line_bot_api.reply_message(
-                    ReplyMessageRequest(
-                        reply_token=event.reply_token,
-                        messages=[
-                            TextMessage(text=reply_text),
-                            FlexMessage(alt_text="🍱 續問：明天要帶便當嗎？", contents=bento_card)
-                        ]
-                    )
-                )
-            
-        elif "bento" in params:
-            dinner_records[user_id]["bento"] = params["bento"]
-            current_dinner = dinner_records[user_id]["dinner"]
-            
-            # 🆕 增強 Log：有人選便當時，立刻印在後台，並秀出當前完整暫存紀錄
-            logger.info(f"📢 [收到回報] {user_name} 登記便當：【{params['bento']}】")
-            logger.info(f"📊 當前記憶體暫存 (dinner_records): {json.dumps(dinner_records, ensure_ascii=False)}")
-            
-            final_text = f"🎉 感謝回報！\n今日晚餐：【{current_dinner}】\n明日便當：【{params['bento']}帶便當】"
-            
-            line_bot_api.reply_message(
-                ReplyMessageRequest(
-                    reply_token=event.reply_token,
-                    messages=[TextMessage(text=final_text)]
-                )
-            )
-
-# ==========================================
-# 自動收集名單與查 ID / 提早查看進度（修正版）
-# ==========================================
-@handler.add(MessageEvent, message=TextMessageContent)
-def handle_message(event: MessageEvent):
-    text = event.message.text.strip()
-    user_id = event.source.user_id
-
-    # 隨時輸入「進度」查看目前回覆狀況
-    if text == "進度":
-        on_time = []
-        late = []
-        no_dinner = []
-        replied = set()
-        
-        for uid, info in dinner_records.items():
-            name = info["name"]
-            replied.add(uid)
-            if info.get("dinner") == "準時": on_time.append(name)
-            elif info.get("dinner") == "晚一點": late.append(name)
-            elif info.get("dinner") == "不留飯": no_dinner.append(name)
-            
-        unreplied = [name for uid, name in FIXED_MEMBERS.items() if uid not in replied]
-        
-        status_text = f"🔍 【當前晚餐回報進度】\n\n"
-        status_text += f"✅ 已回覆：\n"
-        status_text += f" • 準時 ({len(on_time)}人)：{', '.join(on_time) if on_time else '無'}\n"
-        status_text += f" • 晚點 ({len(late)}人)：{', '.join(late) if late else '無'}\n"  # 👈 這裡已修正為 late
-        status_text += f" • 不吃 ({len(no_dinner)}人)：{', '.join(no_dinner) if no_dinner else '無'}\n\n"
-        status_text += f"⚠️ 尚未回覆 ({len(unreplied)}人)：\n"
-        status_text += f" • {', '.join(unreplied) if unreplied else '大家都填寫完畢囉！'}"
-        
-        with ApiClient(configuration) as api_client:
-            line_bot_api = MessagingApi(api_client)
-            line_bot_api.reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=status_text)]))
-            return
-
-    # 原有的查 ID 功能
-    if text.upper() in ["ID", "帳號"]:
-        source_type = event.source.type
-        reply_id_text = f"👥 本群組 ID：\n{event.source.group_id}" if source_type == "group" else f"👤 您的個人 ID：\n{user_id}"
-        with ApiClient(configuration) as api_client:
-            line_bot_api = MessagingApi(api_client)
-            line_bot_api.reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=reply_id_text)]))
-
-@app.get("/")
-@app.head("/")
-def read_root():
-    return {"status": "完美升級版晚餐與便當調查機器人運作中！"}
+            line_bot_
