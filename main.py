@@ -188,7 +188,6 @@ def report_to_chef():
     if not REPORT_TARGET_ID.startswith("C") and not REPORT_TARGET_ID.startswith("R") and not REPORT_TARGET_ID.startswith("U"):
         return
 
-    # 保險防呆：如果中午沒觸發到，16:00 統計前再確保一次固定成員有被自動塞入
     if ABSENT_USER_ID:
         dinner_records[ABSENT_USER_ID] = {"name": ABSENT_NAME, "dinner": "不留飯", "bento": "不要"}
 
@@ -211,15 +210,13 @@ def report_to_chef():
         elif info.get("bento") == "不要": bento_no_list.append(name)
 
     total_dinner_count = len(on_time_list) + len(late_list)
-
     unreplied_list = [name for uid, name in FIXED_MEMBERS.items() if uid not in replied_users]
 
-    # 組合報告文字（黃色/亮色符號視覺強調排版）
     report_text = f"📋 【今日晚餐與明日便當報告】 ({datetime.now().strftime('%m/%d')})\n\n"
     
     report_text += f"🏠 晚餐統計 Statistik makan malam：\n"
     report_text += f"⭐ 回家吃飯總人數 Total orang yang pulang makan：\n"
-    report_text += f"👉 👑 【 {total_dinner_count} 人 】 👑 👈\n"  # 👑 獨立一行視覺放大
+    report_text += f"👉 👑 【 {total_dinner_count} 人 】 👑 👈\n"
     report_text += f"   • 準時到家 Pulang tepat waktu ({len(on_time_list)}人)：{', '.join(on_time_list) if on_time_list else '無'}\n"
     report_text += f"   • 晚一點到 Datang lambat ({len(late_list)}人)：{', '.join(late_list) if late_list else '無'}\n"
     report_text += f" ❌ 不用留飯 Tidak perlu makanan ({len(no_dinner_list)}人)：{', '.join(no_dinner_list) if no_dinner_list else '無'}\n\n"
@@ -229,7 +226,7 @@ def report_to_chef():
     else:
         report_text += f"🍱 明日便當統計 Statistik Bento Besok：\n"
         report_text += f"⭐ 明日需要便當總人數 Butuh bento：\n"
-        report_text += f"👉 🍱 【 {len(bento_yes_list)} 人 】 🍱 👈\n"  # 🍱 獨立一行視覺放大
+        report_text += f"👉 🍱 【 {len(bento_yes_list)} 人 】 🍱 👈\n"
         report_text += f" ⭕ 需要便當 Butuh bento ({len(bento_yes_list)}人)：{', '.join(bento_yes_list) if bento_yes_list else '無'}\n"
         report_text += f" ❌ 不需要者 Tidak butuh ({len(bento_no_list)}人)：{', '.join(bento_no_list) if bento_no_list else '無'}\n\n"
     
@@ -271,7 +268,7 @@ async def callback(request: Request):
     return PlainTextResponse("OK")
 
 # ==========================================
-# 接收並記錄按鈕點擊（Log 增強紀錄版）
+# 接收並記錄按鈕點擊
 # ==========================================
 @handler.add(PostbackEvent)
 def handle_postback(event: PostbackEvent):
@@ -282,4 +279,112 @@ def handle_postback(event: PostbackEvent):
     user_name = FIXED_MEMBERS.get(user_id)
     if not user_name:
         with ApiClient(configuration) as api_client:
-            line_bot_
+            line_bot_api = MessagingApi(api_client)
+            try:
+                profile = line_bot_api.get_profile(user_id)
+                user_name = profile.display_name
+            except Exception:
+                user_name = "神秘家人"
+    
+    if user_id not in dinner_records:
+        dinner_records[user_id] = {"name": user_name, "dinner": "未填", "bento": "未填"}
+
+    params = dict(param.split("=") for param in data.split("&"))
+    
+    with ApiClient(configuration) as api_client:
+        line_bot_api = MessagingApi(api_client)
+        
+        if "dinner" in params:
+            dinner_records[user_id]["dinner"] = params["dinner"]
+            logger.info(f"📢 [收到回報] {user_name} 登記晚餐：【{params['dinner']}】")
+            
+            if not should_send_bento_tomorrow():
+                dinner_records[user_id]["bento"] = "不需便當"
+                final_text = f"👌 已幫您登記晚餐：【{params['dinner']}】。\n🎉 感謝回報！（因明日放假，不統計便當）"
+                line_bot_api.reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=final_text)]))
+            else:
+                reply_text = f"👌 已幫您登記晚餐：【{params['dinner']}】。接下來請選擇明天的便當需求 👇"
+                bento_card = create_bento_card()
+                line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[
+                            TextMessage(text=reply_text),
+                            FlexMessage(alt_text="🍱 續問：明天要帶便當嗎？", contents=bento_card)
+                        ]
+                    )
+                )
+            
+        elif "bento" in params:
+            dinner_records[user_id]["bento"] = params["bento"]
+            current_dinner = dinner_records[user_id]["dinner"]
+            
+            logger.info(f"📢 [收到回報] {user_name} 登記便當：【{params['bento']}】")
+            logger.info(f"📊 當前記憶體暫存 (dinner_records): {dinner_records}") # 👈 修正：移除 json.dumps 避免閃退
+            
+            final_text = f"🎉 感謝回報！\n今日晚餐：【{current_dinner}】\n明日便當：【{params['bento']}帶便當】"
+            line_bot_api.reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=final_text)]))
+
+# ==========================================
+# 即時進度查詢
+# ==========================================
+@handler.add(MessageEvent, message=TextMessageContent)
+def handle_message(event: MessageEvent):
+    text = event.message.text.strip()
+    user_id = event.source.user_id
+
+    if text == "進度":
+        if ABSENT_USER_ID:
+            dinner_records[ABSENT_USER_ID] = {"name": ABSENT_NAME, "dinner": "不留飯", "bento": "不要"}
+
+        on_time = []
+        late = []
+        no_dinner = []
+        bento_yes = []
+        bento_no = []
+        replied = set()
+        
+        for uid, info in dinner_records.items():
+            name = info["name"]
+            replied.add(uid)
+            if info.get("dinner") == "準時": on_time.append(name)
+            elif info.get("dinner") == "晚一點": late.append(name)
+            elif info.get("dinner") == "不留飯": no_dinner.append(name)
+            
+            if info.get("bento") == "要": bento_yes.append(name)
+            elif info.get("bento") == "不要": bento_no.append(name)
+            
+        unreplied = [name for uid, name in FIXED_MEMBERS.items() if uid not in replied]
+        
+        status_text = f"🔍 【當前晚餐回報進度】\n\n"
+        status_text += f"🏡 晚餐統計：\n"
+        status_text += f"👉 👑 【 {len(on_time) + len(late)} 人 吃飯 】 👑 👈\n"
+        status_text += f" • 準時 ({len(on_time)}人)：{', '.join(on_time) if on_time else '無'}\n"
+        status_text += f" • 晚點 ({len(late)}人)：{', '.join(late) if late else '無'}\n"
+        status_text += f" • 不吃 ({len(no_dinner)}人)：{', '.join(no_dinner) if no_dinner else '無'}\n\n"
+        
+        if should_send_bento_tomorrow():
+            status_text += f"🍱 便當統計：\n"
+            status_text += f"👉 🍱 【 {len(bento_yes)} 人 帶便當 】 🍱 👈\n"
+            status_text += f" • 需要 ({len(bento_yes)}人)：{', '.join(bento_yes) if bento_yes else '無'}\n"
+            status_text += f" • 不要 ({len(bento_no)}人)：{', '.join(bento_no) if bento_no else '無'}\n\n"
+        
+        status_text += f"⚠️ 尚未回覆 ({len(unreplied)}人)：\n"
+        status_text += f" • {', '.join(unreplied) if unreplied else '大家都填寫完畢囉！'}"
+        
+        with ApiClient(configuration) as api_client:
+            line_bot_api = MessagingApi(api_client)
+            line_bot_api.reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=status_text)]))
+            return
+
+    if text.upper() in ["ID", "帳號"]:
+        source_type = event.source.type
+        reply_id_text = f"👥 本群組 ID：\n{event.source.group_id}" if source_type == "group" else f"👤 您的個人 ID：\n{user_id}"
+        with ApiClient(configuration) as api_client:
+            line_bot_api = MessagingApi(api_client)
+            line_bot_api.reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=reply_id_text)]))
+
+@app.get("/")
+@app.head("/")
+def read_root():
+    return {"status": "完美升級版晚餐與便當調查機器人運作中！"}
